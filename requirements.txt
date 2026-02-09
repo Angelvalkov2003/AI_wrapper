@@ -1,0 +1,7 @@
+# Инсталирай всички зависимости за трите проекта:
+# pip install -r requirements.txt
+# Или инсталирай само за един проект: pip install -r gemini/requirements.txt и т.н.
+
+google-genai>=1.0.0
+openai>=1.0.0
+anthropic>=0.39.0

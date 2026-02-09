@@ -1,0 +1,16 @@
+# API ключове – не комитвай
+.env
+**/.env
+*.env
+!*.env.example
+gemini/.env
+openai/.env
+anthropic/.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+.env.local
