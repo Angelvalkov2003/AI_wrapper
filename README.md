@@ -7,20 +7,20 @@
 ```
 ai_apis/
 ├── gemini/          # Google Gemini API
-├── openai/          # OpenAI API (Chat, DALL-E, Whisper, Assistants, …)
-├── anthropic/       # Anthropic Claude API
+├── openai_api/       # OpenAI API (име различно от pip пакета openai)
+├── anthropic_api/   # Anthropic Claude API (име различно от pip пакета anthropic)
 └── README.md
 ```
 
 ## Настройка на API ключове
 
-Във всяка папка (`gemini`, `openai`, `anthropic`) има файл **`.env.example`**. Копирай го като **`.env`** и сложи съответния API ключ:
+Във всяка папка (`gemini`, `openai_api`, `anthropic_api`) има файл **`.env.example`**. Копирай го като **`.env`** и сложи съответния API ключ:
 
-| Проект    | Файл             | Променлива          | Откъде да вземеш ключ                                   |
-| --------- | ---------------- | ------------------- | ------------------------------------------------------- |
-| Gemini    | `gemini/.env`    | `GEMINI_API_KEY`    | [Google AI Studio](https://aistudio.google.com/apikey)  |
-| OpenAI    | `openai/.env`    | `OPENAI_API_KEY`    | [OpenAI Platform](https://platform.openai.com/api-keys) |
-| Anthropic | `anthropic/.env` | `ANTHROPIC_API_KEY` | [Anthropic Console](https://console.anthropic.com/)     |
+| Проект    | Файл                  | Променлива          | Откъде да вземеш ключ                                   |
+| --------- | --------------------- | ------------------- | ------------------------------------------------------- |
+| Gemini    | `gemini/.env`         | `GEMINI_API_KEY`    | [Google AI Studio](https://aistudio.google.com/apikey)  |
+| OpenAI    | `openai_api/.env`     | `OPENAI_API_KEY`    | [OpenAI Platform](https://platform.openai.com/api-keys) |
+| Anthropic | `anthropic_api/.env`  | `ANTHROPIC_API_KEY` | [Anthropic Console](https://console.anthropic.com/)     |
 
 Пример за `gemini/.env`:
 
@@ -50,10 +50,10 @@ GEMINI_API_KEY=тук_твоят_ключ
 
 ---
 
-## 2. OpenAI (`openai/`)
+## 2. OpenAI (`openai_api/`)
 
-- **Инсталация:** `pip install -r openai/requirements.txt`
-- **Тест:** `python openai/client.py`
+- **Инсталация:** `pip install -r openai_api/requirements.txt`
+- **Тест:** `python openai_api/client.py`
 
 **Възможности в `client.py`:**
 
@@ -68,10 +68,10 @@ GEMINI_API_KEY=тук_твоят_ключ
 
 ---
 
-## 3. Anthropic (`anthropic/`)
+## 3. Anthropic (`anthropic_api/`)
 
-- **Инсталация:** `pip install -r anthropic/requirements.txt`
-- **Тест:** `python anthropic/client.py`
+- **Инсталация:** `pip install -r anthropic_api/requirements.txt`
+- **Тест:** `python anthropic_api/client.py`
 
 **Възможности в `client.py`:**
 

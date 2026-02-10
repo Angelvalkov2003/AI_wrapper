@@ -12,9 +12,12 @@ import os
 from pathlib import Path
 
 try:
-    from config import ANTHROPIC_API_KEY
+    from .config import ANTHROPIC_API_KEY
 except ImportError:
-    ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
+    try:
+        from config import ANTHROPIC_API_KEY
+    except ImportError:
+        ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
 
 from anthropic import Anthropic
 

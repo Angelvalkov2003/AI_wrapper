@@ -5,7 +5,9 @@
 !*.env.example
 gemini/.env
 openai/.env
+openai_api/.env
 anthropic/.env
+anthropic_api/.env
 
 # Python
 __pycache__/

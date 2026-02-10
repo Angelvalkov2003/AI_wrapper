@@ -178,6 +178,48 @@ def chat_with_history(
     return response.text or ""
 
 
+# ---------- Генериране на изображения ----------
+
+
+def generate_image(
+    prompt: str,
+    *,
+    model: str = "gemini-2.5-flash-image",
+    aspect_ratio: str = "1:1",
+) -> bytes:
+    """
+    Генерира изображение от текстов опис. Връща PNG като bytes.
+    aspect_ratio: "1:1", "9:16", "16:9", "4:3", "3:4" и др.
+    """
+    import io
+    client = get_client()
+    try:
+        config = types.GenerateContentConfig(
+            response_modalities=["IMAGE"],
+            image_config=types.ImageConfig(aspect_ratio=aspect_ratio),
+        )
+    except Exception:
+        config = None
+    if config:
+        response = client.models.generate_content(
+            model=model, contents=prompt, config=config
+        )
+    else:
+        response = client.models.generate_content(model=model, contents=prompt)
+    parts = getattr(response, "parts", None) or (
+        response.candidates[0].content.parts if response.candidates else []
+    )
+    for part in parts:
+        if hasattr(part, "inline_data") and getattr(part, "inline_data", None):
+            return part.inline_data.data
+        if hasattr(part, "as_image"):
+            img = part.as_image()
+            buf = io.BytesIO()
+            img.save(buf, format="PNG")
+            return buf.getvalue()
+    raise ValueError("Моделът не върна изображение.")
+
+
 # ---------- Safety ----------
 
 

@@ -21,11 +21,11 @@ def _import_gemini():
     return m
 
 def _import_openai():
-    from openai import client as m
+    from openai_api import client as m
     return m
 
 def _import_anthropic():
-    from anthropic import client as m
+    from anthropic_api import client as m
     return m
 
 
@@ -37,25 +37,34 @@ def _format_request(api: str, payload: dict) -> str:
         return str(payload)
 
 
-# Предопределени модели за dropdown
+# Само работещи модели (без deprecated / 404 / изискващи специален достъп)
+# Gemini: актуални 2.5 и 3 (без deprecated 2.0)
 GEMINI_MODELS = [
+    "gemini-3-pro-preview",
+    "gemini-3-flash-preview",
     "gemini-2.5-flash",
+    "gemini-2.5-flash-lite",
     "gemini-2.5-pro",
-    "gemini-2.0-flash",
-    "gemini-2.0-flash-001",
-    "gemini-2.0-flash-lite-001",
 ]
+# OpenAI: чат модели (вкл. gpt-4.1 и др.)
 OPENAI_MODELS = [
+    "gpt-4.1",
+    "gpt-4.1-mini",
     "gpt-4o",
     "gpt-4o-mini",
     "gpt-4-turbo",
+    "gpt-4",
     "gpt-3.5-turbo",
 ]
+# Anthropic: Claude 4 + някои работещи варианти
 ANTHROPIC_MODELS = [
+    "claude-opus-4-6",
+    "claude-sonnet-4-5",
+    "claude-sonnet-4-5-20250929",
     "claude-sonnet-4-20250514",
+    "claude-haiku-4-5",
+    "claude-haiku-4-5-20251001",
     "claude-3-5-sonnet-20241022",
-    "claude-3-opus-20240229",
-    "claude-3-haiku-20240307",
 ]
 
 
@@ -155,13 +164,15 @@ class ApiGui:
         paned.pack(fill=tk.BOTH, expand=True, pady=(0, 8))
 
         req_frame = ttk.LabelFrame(paned, text="Изпратена заявка (request)", padding=4)
-        self.request_text = scrolledtext.ScrolledText(req_frame, height=8, wrap=tk.WORD, font=("Consolas", 9), state=tk.DISABLED)
+        self.request_text = scrolledtext.ScrolledText(req_frame, height=8, wrap=tk.WORD, font=("Consolas", 9))
         self.request_text.pack(fill=tk.BOTH, expand=True)
+        self._bind_copy_context_menu(self.request_text)
         paned.add(req_frame, weight=1)
 
         res_frame = ttk.LabelFrame(paned, text="Суров отговор (response)", padding=4)
-        self.response_text = scrolledtext.ScrolledText(res_frame, height=12, wrap=tk.WORD, font=("Consolas", 9), state=tk.DISABLED)
+        self.response_text = scrolledtext.ScrolledText(res_frame, height=12, wrap=tk.WORD, font=("Consolas", 9))
         self.response_text.pack(fill=tk.BOTH, expand=True)
+        self._bind_copy_context_menu(self.response_text)
         paned.add(res_frame, weight=2)
 
     def _clear_options(self):
@@ -209,7 +220,7 @@ class ApiGui:
         if api == "Gemini":
             self._add_row_combo(
                 "Модел\nКой Gemini модел да ползва (flash = бърз, pro = по-качествен)",
-                "model", GEMINI_MODELS, "gemini-2.0-flash"
+                "model", GEMINI_MODELS, "gemini-2.5-flash"
             )
             self._add_row(
                 "Temperature (0–1)\nСлучайност: 0 = фиксиран отговор, 1 = по-разнообразно",
@@ -230,6 +241,18 @@ class ApiGui:
             self._add_row(
                 "Stop sequences\nТекстове, при които да спре генерирането (разделени със запетая)",
                 "stop_sequences", "", 35
+            )
+            self._add_row(
+                "Presence penalty\nШтраф за повторение на теми; празно = 0",
+                "presence_penalty", "", 10
+            )
+            self._add_row(
+                "Frequency penalty\nШтраф за честота на токени; празно = 0",
+                "frequency_penalty", "", 10
+            )
+            self._add_row(
+                "Seed (цяло число)\nЗа възпроизводими отговори; празно = не се ползва",
+                "seed", "", 10
             )
             self._add_row(
                 "Response MIME type\nПразно = обикновен текст; application/json за JSON",
@@ -270,8 +293,8 @@ class ApiGui:
             )
         else:  # Anthropic
             self._add_row_combo(
-                "Модел\nКой Claude модел да ползва (sonnet, opus, haiku)",
-                "model", ANTHROPIC_MODELS, "claude-sonnet-4-20250514"
+                "Модел\nКой Claude модел да ползва (opus 4.6, sonnet 4.5, haiku 4.5)",
+                "model", ANTHROPIC_MODELS, "claude-sonnet-4-5"
             )
             self._add_row(
                 "Max tokens\nМаксимален брой токени в отговора",
@@ -321,17 +344,39 @@ class ApiGui:
         except ValueError:
             return default
 
+    def _bind_copy_context_menu(self, text_widget):
+        """Позволява копиране: десен бутон → Копирай / Избери всичко; Ctrl+C работи."""
+        def copy_to_clipboard():
+            try:
+                sel = text_widget.get(tk.SEL_FIRST, tk.SEL_LAST)
+            except tk.TclError:
+                sel = text_widget.get(1.0, tk.END)
+            if sel.strip():
+                self.win.clipboard_clear()
+                self.win.clipboard_append(sel)
+                self.win.update()
+        def select_all():
+            text_widget.tag_add(tk.SEL, 1.0, tk.END)
+            text_widget.mark_set(tk.INSERT, 1.0)
+            text_widget.see(tk.INSERT)
+        menu = tk.Menu(text_widget, tearoff=0)
+        menu.add_command(label="Копирай (Ctrl+C)", command=copy_to_clipboard)
+        menu.add_command(label="Избери всичко", command=select_all)
+        def show_menu(event):
+            menu.tk_popup(event.x_root, event.y_root)
+        text_widget.bind("<Button-3>", show_menu)
+
     def _update_request_display(self, payload: dict):
         self.request_text.config(state=tk.NORMAL)
         self.request_text.delete(1.0, tk.END)
         self.request_text.insert(tk.END, _format_request(self.api_var.get(), payload))
-        self.request_text.config(state=tk.DISABLED)
+        self.request_text.config(state=tk.NORMAL)
 
     def _update_response_display(self, text: str):
         self.response_text.config(state=tk.NORMAL)
         self.response_text.delete(1.0, tk.END)
         self.response_text.insert(tk.END, text)
-        self.response_text.config(state=tk.DISABLED)
+        self.response_text.config(state=tk.NORMAL)
 
     def _send(self):
         api = self.api_var.get()
@@ -358,7 +403,7 @@ class ApiGui:
 
     def _do_gemini(self, prompt: str, system: str | None, stream: bool):
         mod = _import_gemini()
-        model = self._get_opt("model", "gemini-2.0-flash")
+        model = self._get_opt("model", "gemini-2.5-flash")
         temperature = self._get_float("temperature", 0.7)
         top_p = self._get_float("top_p", 0.95)
         top_k = self._get_int("top_k", 40)
@@ -366,6 +411,10 @@ class ApiGui:
         stop_raw = self._get_opt("stop_sequences")
         stop_sequences = [s.strip() for s in stop_raw.split(",") if s.strip()] if stop_raw else None
         response_mime = self._get_opt("response_mime_type") or None
+        presence_penalty = self._get_float("presence_penalty")
+        frequency_penalty = self._get_float("frequency_penalty")
+        seed_raw = self._get_opt("seed")
+        seed = int(seed_raw) if seed_raw and seed_raw.strip() else None
 
         request_payload = {
             "model": model,
@@ -381,14 +430,29 @@ class ApiGui:
             request_payload["stop_sequences"] = stop_sequences
         if response_mime:
             request_payload["response_mime_type"] = response_mime
+        if presence_penalty is not None:
+            request_payload["presence_penalty"] = presence_penalty
+        if frequency_penalty is not None:
+            request_payload["frequency_penalty"] = frequency_penalty
+        if seed is not None:
+            request_payload["seed"] = seed
 
         self.win.after(0, lambda: self._update_request_display(request_payload))
+
+        kwargs = {}
+        if presence_penalty is not None:
+            kwargs["presence_penalty"] = presence_penalty
+        if frequency_penalty is not None:
+            kwargs["frequency_penalty"] = frequency_penalty
+        if seed is not None:
+            kwargs["seed"] = seed
 
         if stream:
             out = []
             for chunk in mod.generate_content_stream(
                 prompt, model=model, system_instruction=system,
                 temperature=temperature, max_output_tokens=max_out,
+                **kwargs,
             ):
                 out.append(chunk)
             result = "".join(out)
@@ -398,6 +462,7 @@ class ApiGui:
                 temperature=temperature, top_p=top_p, top_k=top_k,
                 max_output_tokens=max_out, stop_sequences=stop_sequences,
                 response_mime_type=response_mime,
+                **kwargs,
             )
         self.win.after(0, lambda: self._update_response_display(result))
 
@@ -460,7 +525,7 @@ class ApiGui:
 
     def _do_anthropic(self, prompt: str, system: str | None, stream: bool):
         mod = _import_anthropic()
-        model = self._get_opt("model", "claude-sonnet-4-20250514")
+        model = self._get_opt("model", "claude-sonnet-4-5")
         max_tokens = self._get_int("max_tokens", 1024)
         temperature = self._get_float("temperature")
         top_p = self._get_float("top_p")

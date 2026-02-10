@@ -16,9 +16,12 @@ import os
 from pathlib import Path
 
 try:
-    from config import OPENAI_API_KEY
+    from .config import OPENAI_API_KEY
 except ImportError:
-    OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
+    try:
+        from config import OPENAI_API_KEY
+    except ImportError:
+        OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 
 from openai import OpenAI
 
@@ -131,18 +134,19 @@ def images_generate(
     style: str | None = None,
     **kwargs,
 ):
-    """Генерира изображения с DALL-E."""
+    """Генерира изображения с DALL-E. quality и style са само за DALL-E 3."""
     client = get_client()
     params = {
         "model": model,
         "prompt": prompt,
         "size": size,
-        "quality": quality,
         "n": n,
         "response_format": response_format,
     }
-    if style and model == "dall-e-3":
-        params["style"] = style  # "vivid" | "natural"
+    if model == "dall-e-3":
+        params["quality"] = quality
+        if style:
+            params["style"] = style  # "vivid" | "natural"
     params.update(kwargs)
     return client.images.generate(**params)
 
