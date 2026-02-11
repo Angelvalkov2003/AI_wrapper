@@ -8,7 +8,8 @@ import os
 import sys
 import threading
 import tkinter as tk
-from tkinter import ttk, scrolledtext, messagebox, font as tkfont
+from tkinter import ttk, scrolledtext, messagebox, filedialog, font as tkfont
+import base64
 
 # Да се намери коренът на проекта и да се импортират клиентите
 ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -64,7 +65,7 @@ ANTHROPIC_MODELS = [
     "claude-sonnet-4-20250514",
     "claude-haiku-4-5",
     "claude-haiku-4-5-20251001",
-    "claude-3-5-sonnet-20241022",
+    "claude-3-haiku-20240307",
 ]
 
 
@@ -98,6 +99,7 @@ class ApiGui:
         self.system_text = None
         self.opt_frame = None
         self.entries = {}
+        self.attached_images = []  # [(path, mime_type), ...]
         self._build_ui()
 
     def _build_ui(self):
@@ -159,6 +161,18 @@ class ApiGui:
         self.prompt_text = scrolledtext.ScrolledText(prompt_frame, height=4, wrap=tk.WORD, font=("Consolas", 10))
         self.prompt_text.pack(fill=tk.X, pady=(0, 6))
 
+        # --- Прикачени снимки (мултимодалност) ---
+        img_frame = ttk.LabelFrame(scroll_inner, text="Прикачени снимки (vision)", padding=6)
+        img_frame.pack(fill=tk.X, pady=(0, 8))
+        img_btn_row = ttk.Frame(img_frame)
+        img_btn_row.pack(fill=tk.X, pady=(0, 4))
+        ttk.Button(img_btn_row, text="Прикачи снимка", command=self._attach_image).pack(side=tk.LEFT, padx=(0, 8))
+        ttk.Button(img_btn_row, text="Премахни избрана", command=self._remove_selected_image).pack(side=tk.LEFT, padx=(0, 8))
+        ttk.Button(img_btn_row, text="Изчисти всички", command=self._clear_attached_images).pack(side=tk.LEFT)
+        self.images_listbox = tk.Listbox(img_frame, height=3, selectmode=tk.SINGLE, font=("", 9))
+        self.images_listbox.pack(fill=tk.X, pady=(0, 4))
+        ttk.Label(img_frame, text="Поддържани формати: JPEG, PNG, GIF, WebP. Снимките се изпращат заедно с промпта към модела.", font=("", 8)).pack(anchor=tk.W)
+
         # --- Заявка / Отговор ---
         paned = ttk.PanedWindow(scroll_inner, orient=tk.VERTICAL)
         paned.pack(fill=tk.BOTH, expand=True, pady=(0, 8))
@@ -174,6 +188,44 @@ class ApiGui:
         self.response_text.pack(fill=tk.BOTH, expand=True)
         self._bind_copy_context_menu(self.response_text)
         paned.add(res_frame, weight=2)
+
+    def _mime_from_path(self, path: str) -> str:
+        ext = (os.path.splitext(path)[1] or "").lower()
+        return {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".gif": "image/gif", ".webp": "image/webp"}.get(ext, "image/jpeg")
+
+    def _attach_image(self):
+        paths = filedialog.askopenfilenames(
+            title="Избери снимки",
+            filetypes=[("Изображения", "*.jpg *.jpeg *.png *.gif *.webp"), ("Всички", "*.*")],
+        )
+        for path in paths:
+            if path and path not in [p for p, _ in self.attached_images]:
+                mime = self._mime_from_path(path)
+                self.attached_images.append((path, mime))
+                self.images_listbox.insert(tk.END, os.path.basename(path))
+
+    def _remove_selected_image(self):
+        sel = self.images_listbox.curselection()
+        if not sel:
+            return
+        idx = sel[0]
+        self.images_listbox.delete(idx)
+        self.attached_images.pop(idx)
+
+    def _clear_attached_images(self):
+        self.images_listbox.delete(0, tk.END)
+        self.attached_images.clear()
+
+    def _get_image_parts(self) -> list[tuple[bytes, str]]:
+        """Връща списък (bytes, mime_type) за прикачените снимки."""
+        out = []
+        for path, mime in self.attached_images:
+            try:
+                with open(path, "rb") as f:
+                    out.append((f.read(), mime))
+            except Exception:
+                pass
+        return out
 
     def _clear_options(self):
         for w in self.opt_frame.winfo_children():
@@ -386,22 +438,23 @@ class ApiGui:
             messagebox.showwarning("Грешка", "Въведи съобщение (prompt).")
             return
         stream = self.stream_var.get()
+        image_parts = self._get_image_parts()
 
         def run():
             try:
                 if api == "Gemini":
-                    self._do_gemini(prompt, system, stream)
+                    self._do_gemini(prompt, system, stream, image_parts)
                 elif api == "OpenAI":
-                    self._do_openai(prompt, system, stream)
+                    self._do_openai(prompt, system, stream, image_parts)
                 else:
-                    self._do_anthropic(prompt, system, stream)
+                    self._do_anthropic(prompt, system, stream, image_parts)
             except Exception as exc:
                 err_msg = f"Грешка:\n{type(exc).__name__}: {exc}"
                 self.win.after(0, lambda msg=err_msg: self._update_response_display(msg))
 
         threading.Thread(target=run, daemon=True).start()
 
-    def _do_gemini(self, prompt: str, system: str | None, stream: bool):
+    def _do_gemini(self, prompt: str, system: str | None, stream: bool, image_parts: list):
         mod = _import_gemini()
         model = self._get_opt("model", "gemini-2.5-flash")
         temperature = self._get_float("temperature", 0.7)
@@ -418,7 +471,7 @@ class ApiGui:
 
         request_payload = {
             "model": model,
-            "contents": prompt,
+            "contents": "(текст + снимки)" if image_parts else prompt,
             "system_instruction": system,
             "temperature": temperature,
             "top_p": top_p,
@@ -446,6 +499,8 @@ class ApiGui:
             kwargs["frequency_penalty"] = frequency_penalty
         if seed is not None:
             kwargs["seed"] = seed
+        if image_parts:
+            kwargs["image_parts"] = image_parts
 
         if stream:
             out = []
@@ -466,7 +521,7 @@ class ApiGui:
             )
         self.win.after(0, lambda: self._update_response_display(result))
 
-    def _do_openai(self, prompt: str, system: str | None, stream: bool):
+    def _do_openai(self, prompt: str, system: str | None, stream: bool, image_parts: list):
         mod = _import_openai()
         model = self._get_opt("model", "gpt-4o-mini")
         temperature = self._get_float("temperature", 0.7)
@@ -484,7 +539,14 @@ class ApiGui:
         messages = []
         if system:
             messages.append({"role": "system", "content": system})
-        messages.append({"role": "user", "content": prompt})
+        if image_parts:
+            user_content = [{"type": "text", "text": prompt}]
+            for img_bytes, mime in image_parts:
+                b64 = base64.standard_b64encode(img_bytes).decode("ascii")
+                user_content.append({"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}})
+            messages.append({"role": "user", "content": user_content})
+        else:
+            messages.append({"role": "user", "content": prompt})
 
         request_payload = {
             "model": model,
@@ -504,12 +566,11 @@ class ApiGui:
         self.win.after(0, lambda: self._update_request_display(request_payload))
 
         if stream:
+            r = mod.chat_completion(messages, model=model, temperature=temperature, max_tokens=max_tokens, top_p=top_p, frequency_penalty=freq, presence_penalty=pres, stop=stop, seed=seed, stream=True)
             out = []
-            for chunk in mod.chat_stream(
-                prompt, model=model, system=system,
-                temperature=temperature, max_tokens=max_tokens,
-            ):
-                out.append(chunk)
+            for chunk in r:
+                if chunk.choices and chunk.choices[0].delta.content:
+                    out.append(chunk.choices[0].delta.content)
             result = "".join(out)
         else:
             r = mod.chat_completion(
@@ -523,7 +584,7 @@ class ApiGui:
             return
         self.win.after(0, lambda: self._update_response_display(result))
 
-    def _do_anthropic(self, prompt: str, system: str | None, stream: bool):
+    def _do_anthropic(self, prompt: str, system: str | None, stream: bool, image_parts: list):
         mod = _import_anthropic()
         model = self._get_opt("model", "claude-sonnet-4-5")
         max_tokens = self._get_int("max_tokens", 1024)
@@ -534,9 +595,17 @@ class ApiGui:
         stop_raw = self._get_opt("stop_sequences")
         stop_sequences = [s.strip() for s in stop_raw.split(",") if s.strip()] if stop_raw else None
 
+        if image_parts:
+            content_blocks = [{"type": "text", "text": prompt}]
+            for img_bytes, mime in image_parts:
+                content_blocks.append({"type": "image", "source": {"type": "base64", "media_type": mime, "data": base64.standard_b64encode(img_bytes).decode("ascii")}})
+            user_content = content_blocks
+        else:
+            user_content = prompt
+
         request_payload = {
             "model": model,
-            "messages": [{"role": "user", "content": prompt}],
+            "messages": [{"role": "user", "content": "(текст + снимки)" if image_parts else prompt}],
             "system": system,
             "max_tokens": max_tokens,
             "stream": stream,
@@ -554,22 +623,22 @@ class ApiGui:
 
         if stream:
             out = []
-            for chunk in mod.message_stream(
-                prompt, model=model, system=system,
-                max_tokens=max_tokens, temperature=temperature,
-                top_p=top_p, top_k=top_k, stop_sequences=stop_sequences,
-            ):
-                out.append(chunk)
+            if image_parts:
+                for chunk in mod.message_stream(prompt, model=model, system=system, max_tokens=max_tokens, temperature=temperature, top_p=top_p, top_k=top_k, stop_sequences=stop_sequences, content_blocks=content_blocks):
+                    out.append(chunk)
+            else:
+                for chunk in mod.message_stream(prompt, model=model, system=system, max_tokens=max_tokens, temperature=temperature, top_p=top_p, top_k=top_k, stop_sequences=stop_sequences):
+                    out.append(chunk)
             result = "".join(out)
             self.win.after(0, lambda: self._update_response_display(result))
             return
+        messages = [{"role": "user", "content": user_content}]
         r = mod.message_create(
-            [{"role": "user", "content": prompt}],
+            messages,
             model=model, system=system, max_tokens=max_tokens,
             temperature=temperature, top_p=top_p, top_k=top_k,
             stop_sequences=stop_sequences,
         )
-        text = next((b.text for b in r.content if hasattr(b, "text") and b.text), "") if r.content else ""
         raw_display = _format_response(r)
         self.win.after(0, lambda: self._update_response_display(raw_display))
 

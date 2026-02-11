@@ -109,13 +109,25 @@ def embeddings_create(
     *,
     model: str = "text-embedding-3-small",
     dimensions: int | None = None,
+    encoding_format: str | None = None,
+    user: str | None = None,
     **kwargs,
 ):
-    """Създава embeddings за текст/списък от текстове."""
+    """
+    POST /embeddings – създава embedding вектор(и) за входния текст.
+    input_text: един текст или списък от текстове (до 2048 измерения на вход, макс. 8192 токена на вход).
+    dimensions: само за text-embedding-3* модели.
+    encoding_format: "float" (default) или "base64".
+    user: опционален идентификатор на end-user за мониторинг.
+    """
     client = get_client()
     params = {"model": model, "input": input_text}
     if dimensions is not None:
         params["dimensions"] = dimensions
+    if encoding_format is not None:
+        params["encoding_format"] = encoding_format
+    if user is not None:
+        params["user"] = user
     params.update(kwargs)
     return client.embeddings.create(**params)
 

@@ -52,11 +52,11 @@ def generate_content(
     stop_sequences: list[str] | None = None,
     safety_settings: list[dict] | None = None,
     response_mime_type: str | None = None,
+    image_parts: list[tuple[bytes, str]] | None = None,
     **kwargs,
 ) -> str:
     """
-    Генерира текст чрез Gemini.
-    Всички опции на API-то могат да се подават като kwargs (напр. candidate_count, seed).
+    Генерира текст чрез Gemini. image_parts: списък от (bytes, mime_type) за снимки (vision).
     """
     client = get_client()
     config_dict = {
@@ -78,12 +78,23 @@ def generate_content(
     config_dict.update(kwargs)
     config = types.GenerateContentConfig(**{k: v for k, v in config_dict.items() if v is not None})
 
+    contents = _build_multimodal_contents(prompt, image_parts) if image_parts else prompt
     response = client.models.generate_content(
         model=model,
-        contents=prompt,
+        contents=contents,
         config=config,
     )
     return response.text or ""
+
+
+def _build_multimodal_contents(prompt: str, image_parts: list[tuple[bytes, str]]):
+    """Сглобява contents за API: снимки + текст (за vision/multimodal)."""
+    parts = []
+    for img_bytes, mime_type in image_parts:
+        blob = types.Blob(mime_type=mime_type or "image/jpeg", data=img_bytes)
+        parts.append(types.Part(inline_data=blob))
+    parts.append(types.Part.from_text(text=prompt))
+    return [types.Content(role="user", parts=parts)]
 
 
 def generate_content_stream(
@@ -93,9 +104,10 @@ def generate_content_stream(
     system_instruction: str | None = None,
     temperature: float = 0.7,
     max_output_tokens: int | None = 2048,
+    image_parts: list[tuple[bytes, str]] | None = None,
     **kwargs,
 ):
-    """Стрийминг на отговора токен по токен."""
+    """Стрийминг на отговора токен по токен. image_parts за vision (снимки)."""
     client = get_client()
     config = types.GenerateContentConfig(
         temperature=temperature,
@@ -103,9 +115,10 @@ def generate_content_stream(
         system_instruction=system_instruction,
         **{k: v for k, v in kwargs.items() if v is not None},
     )
+    contents = _build_multimodal_contents(prompt, image_parts) if image_parts else prompt
     for chunk in client.models.generate_content_stream(
         model=model,
-        contents=prompt,
+        contents=contents,
         config=config,
     ):
         if chunk.text:
@@ -119,6 +132,46 @@ def list_models(page_size: int = 20):
     """Списък на наличните Gemini модели. Връща списък (не итератор), за да не се затваря клиентът."""
     client = get_client()
     return list(client.models.list(config={"page_size": page_size}))
+
+
+# ---------- Embeddings ----------
+
+
+def embed_content(
+    contents: str | list[str],
+    *,
+    model: str = "gemini-embedding-001",
+    task_type: str | None = None,
+    output_dimensionality: int | None = None,
+    **kwargs,
+) -> list[list[float]]:
+    """
+    Генерира текстови embeddings. Връща списък от вектори (всеки е list[float]).
+    contents: един текст или списък от текстове.
+    task_type: SEMANTIC_SIMILARITY, RETRIEVAL_DOCUMENT, RETRIEVAL_QUERY, CLASSIFICATION, CLUSTERING, и др.
+    output_dimensionality: 128–3072, препоръчително 768, 1536 или 3072.
+    """
+    client = get_client()
+    if isinstance(contents, str):
+        contents = [contents]
+    config_dict = {}
+    if task_type:
+        config_dict["task_type"] = task_type
+    if output_dimensionality is not None:
+        config_dict["output_dimensionality"] = output_dimensionality
+    config_dict.update(kwargs)
+    config = types.EmbedContentConfig(**config_dict) if config_dict else None
+    result = client.models.embed_content(
+        model=model,
+        contents=contents,
+        config=config,
+    )
+    embeddings = getattr(result, "embeddings", result)
+    out = []
+    for e in embeddings:
+        vals = getattr(e, "values", None) or list(e) if hasattr(e, "__iter__") and not isinstance(e, str) else []
+        out.append(vals if isinstance(vals, list) else list(vals))
+    return out
 
 
 # ---------- Токени ----------

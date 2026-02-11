@@ -109,15 +109,20 @@ def message_stream(
     model: str = "claude-sonnet-4-20250514",
     system: str | None = None,
     max_tokens: int = 1024,
+    content_blocks: list | None = None,
     **kwargs,
 ):
-    """Стрийминг на отговора."""
+    """Стрийминг на отговора. content_blocks: за vision – [{"type":"text","text":...}, {"type":"image",...}]."""
     client = get_client()
+    if content_blocks is not None:
+        messages = [{"role": "user", "content": content_blocks}]
+    else:
+        messages = [{"role": "user", "content": prompt}]
     with client.messages.stream(
         model=model,
         max_tokens=max_tokens,
         system=system,
-        messages=[{"role": "user", "content": prompt}],
+        messages=messages,
         **kwargs,
     ) as stream:
         for text in stream.text_stream:

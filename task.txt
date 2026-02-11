@@ -1,0 +1,3 @@
+Embeding 
+Multimodalnost
+Да питам webscraping с пайтън библиоетеки и примерни скриптове
