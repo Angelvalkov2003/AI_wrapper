@@ -1,6 +1,7 @@
 """
 GUI за генериране на embeddings с OpenAI и Gemini.
 (Anthropic няма собствен embedding API – препоръчват Voyage AI.)
+Два текста → два вектора → cosine similarity между тях.
 Стартиране: python gui_embeddings.py
 """
 import base64
@@ -11,6 +12,17 @@ import sys
 import threading
 import tkinter as tk
 from tkinter import ttk, messagebox, scrolledtext
+import numpy as np
+
+
+def cosine_similarity(a, b):
+    """Косинусна близост между два вектора (като в test.py)."""
+    a = np.array(a, dtype=float)
+    b = np.array(b, dtype=float)
+    n = np.linalg.norm(a) * np.linalg.norm(b)
+    if n == 0:
+        return 0.0
+    return float(np.dot(a, b) / n)
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 if ROOT not in sys.path:
@@ -91,20 +103,23 @@ class EmbeddingGui:
         self.opts_frame.pack(fill=tk.X, pady=(0, 8))
         self._fill_opts("OpenAI")
 
-        # Входен текст (ред по ред = отделни текстове, или един блок)
-        ttk.Label(main, text="Текст(ове) за embedding:").pack(anchor=tk.W)
-        self.input_text = tk.Text(main, height=5, wrap=tk.WORD, font=("Segoe UI", 10))
-        self.input_text.pack(fill=tk.X, pady=(0, 2))
+        # Два входни текста за сравнение
+        ttk.Label(main, text="Текст 1:").pack(anchor=tk.W)
+        self.input_text1 = tk.Text(main, height=4, wrap=tk.WORD, font=("Segoe UI", 10))
+        self.input_text1.pack(fill=tk.X, pady=(0, 2))
+        ttk.Label(main, text="Текст 2:").pack(anchor=tk.W, pady=(6, 0))
+        self.input_text2 = tk.Text(main, height=4, wrap=tk.WORD, font=("Segoe UI", 10))
+        self.input_text2.pack(fill=tk.X, pady=(0, 2))
         ttk.Label(
             main,
-            text="Един ред = един текст (един вектор). Или напишете един блок – ще се третира като един вход. Текстът не трябва да надвишава лимита за токени на модела.",
+            text="Въведете два различни текста. Ще се генерират embeddings за всеки и ще се изчисли cosine similarity между векторите.",
             font=("", 8),
             foreground="gray",
         ).pack(anchor=tk.W, pady=(0, 8))
 
         btn_row = ttk.Frame(main)
         btn_row.pack(fill=tk.X, pady=(0, 6))
-        ttk.Button(btn_row, text="Генерирай embeddings", command=self._generate).pack(side=tk.LEFT, padx=(0, 8))
+        ttk.Button(btn_row, text="Генерирай embeddings и сравни", command=self._generate).pack(side=tk.LEFT, padx=(0, 8))
 
         # Заявка / Отговор
         paned = ttk.PanedWindow(main, orient=tk.VERTICAL)
@@ -120,6 +135,19 @@ class EmbeddingGui:
         self.response_text = scrolledtext.ScrolledText(res_f, height=8, wrap=tk.WORD, font=("Consolas", 9), state=tk.DISABLED)
         self.response_text.pack(fill=tk.BOTH, expand=True)
         paned.add(res_f, weight=2)
+
+        # Поле за cosine similarity (числото от формулата)
+        sim_frame = ttk.LabelFrame(main, text="Cosine similarity (сходство между двата вектора)", padding=6)
+        sim_frame.pack(fill=tk.X, pady=(6, 4))
+        self.similarity_var = tk.StringVar(value="—")
+        self.similarity_entry = ttk.Entry(sim_frame, textvariable=self.similarity_var, state="readonly", font=("Consolas", 11))
+        self.similarity_entry.pack(fill=tk.X)
+        ttk.Label(
+            sim_frame,
+            text="Стойност от 0 до 1: по-близо до 1 = по-сходни текстове.",
+            font=("", 8),
+            foreground="gray",
+        ).pack(anchor=tk.W, pady=(2, 0))
 
         self.status_var = tk.StringVar(value="")
         ttk.Label(main, textvariable=self.status_var, font=("", 9)).pack(anchor=tk.W)
@@ -228,21 +256,23 @@ class EmbeddingGui:
         self.win.update_idletasks()
         self.status_var.set("Целият отговор (с всички числа) е копиран в клипборда.")
 
-    def _get_inputs(self) -> list[str]:
-        raw = self.input_text.get(1.0, tk.END).strip()
-        if not raw:
-            return []
-        lines = [ln.strip() for ln in raw.splitlines() if ln.strip()]
-        if len(lines) == 1 and "\n" not in raw and len(raw) > 80:
-            return [raw]
-        return lines if lines else [raw]
+    def _get_two_texts(self) -> tuple[str, str] | None:
+        t1 = self.input_text1.get(1.0, tk.END).strip()
+        t2 = self.input_text2.get(1.0, tk.END).strip()
+        if not t1 or not t2:
+            return None
+        return (t1, t2)
 
     def _generate(self):
-        inputs = self._get_inputs()
-        if not inputs:
-            messagebox.showwarning("Грешка", "Въведи поне един текст.")
+        two = self._get_two_texts()
+        if not two:
+            messagebox.showwarning("Грешка", "Въведете и двата текста (Текст 1 и Текст 2).")
             return
+        self.similarity_var.set("—")
         self.status_var.set("Генериране...")
+
+        text1, text2 = two
+        inputs = [text1, text2]
 
         def run():
             try:
@@ -308,6 +338,9 @@ class EmbeddingGui:
         full_text = self._format_embedding_response(vectors, len(inputs), full=True)
         self.win.after(0, lambda s=summary: self._update_response(s))
         self.win.after(0, lambda ft=full_text: setattr(self, "_full_response_text", ft))
+        if len(vectors) == 2:
+            sim = cosine_similarity(vectors[0], vectors[1])
+            self.win.after(0, lambda x=sim: self.similarity_var.set(f"{x:.6f}"))
         self.win.after(0, lambda: self.status_var.set("Готово."))
 
     def _do_gemini(self, inputs: list[str]):
@@ -342,6 +375,9 @@ class EmbeddingGui:
         full_text = self._format_embedding_response(vectors, len(inputs), full=True)
         self.win.after(0, lambda s=summary: self._update_response(s))
         self.win.after(0, lambda ft=full_text: setattr(self, "_full_response_text", ft))
+        if len(vectors) == 2:
+            sim = cosine_similarity(vectors[0], vectors[1])
+            self.win.after(0, lambda x=sim: self.similarity_var.set(f"{x:.6f}"))
         self.win.after(0, lambda: self.status_var.set("Готово."))
 
     def _format_embedding_response(
@@ -362,6 +398,7 @@ class EmbeddingGui:
 
     def _show_error(self, msg: str):
         self.status_var.set("")
+        self.similarity_var.set("—")
         self._full_response_text = ""
         self._update_response(f"Грешка: {msg}")
         messagebox.showerror("Грешка", msg)
